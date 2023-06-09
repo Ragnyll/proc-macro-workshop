@@ -26,15 +26,50 @@ fn generate_builder_struct(syntax_tree: &DeriveInput) -> TokenStream2 {
     let builder_struct_name = format!("{}Builder", input_ident.to_string());
     let builder_ident = Ident::new(&builder_struct_name, input_ident.span());
 
-    let field_idents = generate_builder_named_fields_idents(&syntax_tree.data);
-    let field_types = generate_builder_named_fields_types(&syntax_tree.data);
+    let fields = if let syn::Data::Struct(syn::DataStruct {
+        fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
+        ..
+    }) = syntax_tree.data
+    {
+        named
+    } else {
+        unimplemented!();
+    };
+
+    //let fields = fields.iter().map(|f| {
+        //let name = f.ident.as_ref().unwrap();
+        //let t = &f.ty; // type
+
+        //if is_optional_type(t) {
+            //// you dont need the option on it since its already an option
+            //quote! {
+                //#name: #t
+            //}
+        //} else {
+            //quote! {
+                //#name: Option<#t>
+            //}
+        //}
+    //});
 
     quote! {
         pub struct #builder_ident {
-            #(#field_idents: Option<#field_types>),*
+            #(#fields),*
         }
 
     }
+}
+
+fn is_optional_type(t: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = t {
+        // this wont work for more complicated types
+        for segment in type_path.path.segments.iter() {
+            if segment.ident == "Option" {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 fn generate_return_builder(syntax_tree: &DeriveInput) -> TokenStream2 {
@@ -84,7 +119,7 @@ fn generate_build_function(syntax_tree: &DeriveInput) -> TokenStream2 {
         let name = f.ident.as_ref().unwrap();
 
         quote! {
-            #name : self.#name.clone().ok_or("Field #name cannot be None")?
+            #name : self.#name.clone().ok_or("Field cannot be None")?
         }
     });
 
