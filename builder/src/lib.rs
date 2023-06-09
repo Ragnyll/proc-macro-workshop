@@ -9,12 +9,13 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     // these two will generate the same size vec as they are the same input tree
     let builder_struct = generate_builder_struct(&ast);
-    let impl_builder = generate_impl_builder(&ast);
+    let return_builder = generate_return_builder(&ast);
+    let builder_impl = generate_builder_impl(&ast);
 
     let expanded = quote! {
         #builder_struct
-
-        #impl_builder
+        #return_builder
+        #builder_impl
     };
 
     TokenStream::from(expanded)
@@ -36,7 +37,7 @@ fn generate_builder_struct(syntax_tree: &DeriveInput) -> TokenStream2 {
     }
 }
 
-fn generate_impl_builder(syntax_tree: &DeriveInput) -> TokenStream2 {
+fn generate_return_builder(syntax_tree: &DeriveInput) -> TokenStream2 {
     let input_ident = &syntax_tree.ident;
     let builder_struct_name = format!("{}Builder", input_ident.to_string());
     let builder_ident = Ident::new(&builder_struct_name, input_ident.span());
@@ -49,6 +50,78 @@ fn generate_impl_builder(syntax_tree: &DeriveInput) -> TokenStream2 {
                 }
             }
         }
+    }
+}
+
+fn generate_builder_impl(syntax_tree: &DeriveInput) -> TokenStream2 {
+    let input_ident = &syntax_tree.ident;
+    let builder_struct_name = format!("{}Builder", input_ident.to_string());
+    let builder_ident = Ident::new(&builder_struct_name, input_ident.span());
+    let set_functions = generate_builder_set_functions(&syntax_tree);
+    let build_function = generate_build_function(&syntax_tree);
+
+    quote! {
+        impl #builder_ident {
+            #set_functions
+            #build_function
+        }
+    }
+}
+
+fn generate_build_function(syntax_tree: &DeriveInput) -> TokenStream2 {
+    let input_ident = &syntax_tree.ident;
+    let fields = if let syn::Data::Struct(syn::DataStruct {
+        fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
+        ..
+    }) = syntax_tree.data
+    {
+        named
+    } else {
+        unimplemented!();
+    };
+
+    let checks = fields.iter().map(|f| {
+        let name = f.ident.as_ref().unwrap();
+
+        quote! {
+            #name : self.#name.clone().ok_or("Field #name cannot be None")?
+        }
+    });
+
+    quote! {
+        pub fn build(&mut self) -> Result<#input_ident, Box<dyn std::error::Error>> {
+            Ok(#input_ident {
+                #(#checks),*
+            })
+        }
+    }
+}
+
+fn generate_builder_set_functions(syntax_tree: &DeriveInput) -> TokenStream2 {
+    let fields = if let syn::Data::Struct(syn::DataStruct {
+        fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
+        ..
+    }) = syntax_tree.data
+    {
+        named
+    } else {
+        unimplemented!();
+    };
+
+    let methods = fields.iter().map(|f| {
+        let name = f.ident.as_ref().unwrap();
+        let ty = &f.ty;
+
+        quote! {
+            pub fn #name(&mut self, #name: #ty) -> &mut Self {
+                self.#name = Some(#name);
+                self
+            }
+        }
+    });
+
+    quote! {
+        #(#methods)*
     }
 }
 
@@ -83,4 +156,3 @@ fn get_named_fields(
     };
     None
 }
-
